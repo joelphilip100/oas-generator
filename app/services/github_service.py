@@ -3,7 +3,9 @@ import time
 import httpx
 import jwt
 import shutil
-import subprocess
+import tempfile
+import zipfile
+import uuid
 from github import Github, Auth
 from dotenv import load_dotenv
 
@@ -13,8 +15,8 @@ load_dotenv()
 # Format: {installation_id: {"token": str, "expires_at": int}}
 TOKEN_CACHE = {}
 
-# Base directory to store cloned repositories
-BASE_REPO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "repos")
+# Base directory to store cloned repositories (pointing to root/repos)
+BASE_REPO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "repos")
 
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
 # Load the PEM file contents from an environment variable
@@ -126,34 +128,104 @@ def get_github_client(installation_id: int, token: str = None) -> Github:
     auth = Auth.Token(token)
     return Github(auth=auth)
 
-def clone_repo(installation_id: int, owner: str, repo_name: str, token: str = None):
+def clone_repo(installation_id: int, owner: str, repo_name: str, token: str = None, ref: str = "main"):
     """
-    Clones a repository into the 'repos' folder. 
-    If the folder already exists, it replaces it with a fresh clone.
+    Downloads and extracts a repository archive into a UNIQUE sandbox folder.
+    Ensures that multiple concurrent requests don't interfere with each other.
     """
     if not token:
         token = get_installation_access_token(installation_id)
-    clone_url = f"https://x-access-token:{token}@github.com/{owner}/{repo_name}.git"
-    
-    # Destination structure: repos/owner/repo_name
-    dest_path = os.path.join(BASE_REPO_DIR, owner, repo_name)
-    
-    # If folder exists, remove it
-    if os.path.exists(dest_path):
-        shutil.rmtree(dest_path)
+        
+    url = f"https://api.github.com/repos/{owner}/{repo_name}/zipball/{ref}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    # Generate a unique run ID for this request
+    run_id = str(uuid.uuid4())[:8]
+    # Destination structure: repos/owner/repo_name_runid
+    dest_path = os.path.join(BASE_REPO_DIR, owner, f"{repo_name}_{run_id}")
     
     # Ensure parent directory exists
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    
-    result = subprocess.run(["git", "clone", clone_url, dest_path], capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        raise Exception(f"Failed to clone repository: {result.stderr}")
+    # Cleanup should not be needed as it's a unique folder, but for safety:
+    if os.path.exists(dest_path):
+        shutil.rmtree(dest_path)
+    os.makedirs(dest_path, exist_ok=True)
+
+    # Use a temporary file to store the downloaded zip
+    with tempfile.NamedTemporaryFile() as tmp_file:
+        with httpx.stream("GET", url, headers=headers, follow_redirects=True) as response:
+            response.raise_for_status()
+            for chunk in response.iter_bytes():
+                tmp_file.write(chunk)
         
+        tmp_file.seek(0)
+        with zipfile.ZipFile(tmp_file) as z:
+            top_level_dir = z.namelist()[0].split('/')[0]
+            for member in z.infolist():
+                if member.filename == f"{top_level_dir}/":
+                    continue
+                relative_path = member.filename[len(top_level_dir)+1:]
+                if not relative_path:
+                    continue
+                target_path = os.path.join(dest_path, relative_path)
+                if member.is_dir():
+                    os.makedirs(target_path, exist_ok=True)
+                else:
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    with open(target_path, 'wb') as f:
+                        f.write(z.read(member))
+
     return {
         "status": "success",
-        "message": f"Successfully cloned {owner}/{repo_name}",
-        "local_path": dest_path
+        "message": f"Successfully sandboxed {owner}/{repo_name}",
+        "local_path": dest_path,
+        "run_id": run_id
+    }
+
+def cleanup_repo(local_path: str):
+    """Removes a sandbox directory with error handling for locked files."""
+    if not local_path:
+        return
+        
+    if os.path.exists(local_path):
+        try:
+            # We use ignore_errors=True or a handler if we want to be very aggressive, 
+            # but standard rmtree should work for downloaded ZIP contents.
+            shutil.rmtree(local_path)
+        except Exception as e:
+            # If it fails (e.g. file busy), we at least want to know
+            print(f"Cleanup Error for {local_path}: {e}")
+    return {"status": "success", "message": f"Cleanup attempted for {local_path}"}
+
+def purge_all_sandboxes():
+    """Finds and deletes all folders with a unique ID suffix in the repos directory."""
+    cleaned = []
+    errors = []
+    
+    # Walk through the repos directory
+    if os.path.exists(BASE_REPO_DIR):
+        for root, dirs, files in os.walk(BASE_REPO_DIR):
+            for d in dirs:
+                # Our sandboxes look like repo-name_runid
+                if "_" in d and len(d.split("_")[-1]) == 8:
+                    full_path = os.path.join(root, d)
+                    try:
+                        shutil.rmtree(full_path)
+                        cleaned.append(full_path)
+                    except Exception as e:
+                        errors.append(f"Failed to delete {full_path}: {e}")
+            
+            # We only want to check the top levels for our sandbox pattern usually, 
+            # but walk handles nested structures if they exist.
+    
+    return {
+        "status": "success",
+        "message": f"Purged {len(cleaned)} sandboxes",
+        "cleaned": cleaned,
+        "errors": errors
     }
 
 

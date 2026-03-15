@@ -12,13 +12,27 @@ def lookup_repo(repo_name: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.post("/clone")
-async def clone_repository(req: github_schemas.CloneRequest):
+@router.post("/purge-sandboxes")
+def purge_sandboxes():
+    """Manual trigger to clean up all unique sandbox folders in the repos directory."""
     try:
-        await resolve_gh_details(req)
-        return gh_services.clone_repo(req.installation_id, req.owner, req.repo_name)
+        return gh_services.purge_all_sandboxes()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/clone")
+async def clone_repository(req: github_schemas.CloneRequest, cleanup: bool = False):
+    local_path = None
+    try:
+        await resolve_gh_details(req)
+        result = gh_services.clone_repo(req.installation_id, req.owner, req.repo_name)
+        local_path = result.get("local_path")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cleanup and local_path:
+            gh_services.cleanup_repo(local_path)
 
 @router.post("/branch")
 async def create_branch(req: github_schemas.BranchRequest):
@@ -69,14 +83,16 @@ async def get_tree(req: github_schemas.FileRequest):
 
 @router.post("/integrated-workflow")
 async def integrated_workflow(req: github_schemas.IntegratedWorkflowRequest):
+    local_path = None
     try:
         await resolve_gh_details(req)
 
         # 1. Fetch token ONCE at the start of the workflow
         token = gh_services.get_installation_access_token(req.installation_id)
 
-        # 2. Clone Repo
-        gh_services.clone_repo(req.installation_id, req.owner, req.repo_name, token=token)
+        # 2. Clone Repo (Creates a unique sandbox)
+        clone_result = gh_services.clone_repo(req.installation_id, req.owner, req.repo_name, token=token)
+        local_path = clone_result["local_path"]
 
         # 3. Create Branch
         gh_services.create_branch(
@@ -113,4 +129,9 @@ async def integrated_workflow(req: github_schemas.IntegratedWorkflowRequest):
             "pr": pr_result
         }
     except Exception as e:
+        print(f"Workflow Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if local_path:
+            print(f"Cleaning up sandbox: {local_path}")
+            gh_services.cleanup_repo(local_path)
