@@ -108,7 +108,7 @@ class JiraService:
         }
         return await self._make_request("POST", f"/rest/api/3/issue/{issue_key}/comment", json_data=payload)
 
-    def _parse_adf_to_text(self, adf_body: dict) -> str:
+    def parse_adf_to_text(self, adf_body: dict) -> str:
         """Converts Atlassian Document Format (ADF) back into plain text."""
         if not adf_body or "content" not in adf_body:
             return ""
@@ -133,10 +133,18 @@ class JiraService:
                 "id": c.get("id"),
                 "author": c.get("author", {}).get("displayName"),
                 "created": c.get("created"),
-                "body": self._parse_adf_to_text(c.get("body"))
+                "body": self.parse_adf_to_text(c.get("body"))
             }
             for c in data.get("comments", [])
         ]
+
+    async def download_attachment(self, url: str) -> bytes:
+        """Downloads the binary content of an attachment."""
+        headers = self._get_headers()
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            return response.content
 
 # Singleton instance for easy import
 jira_service = JiraService()

@@ -4,3 +4,5 @@ __pycache__/
 repos/
 .vscode/
 *.pyc
+attachments/
+
