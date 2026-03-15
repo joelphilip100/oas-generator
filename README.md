@@ -1,6 +1,5 @@
 # ai-oas-generator
 
-A project created with FastAPI CLI.
 
 ## Quick Start
 
@@ -10,11 +9,7 @@ A project created with FastAPI CLI.
 uv run fastapi dev
 ```
 
-Visit http://localhost:8000
-
 ### Deploy to FastAPI Cloud
-
-> FastAPI Cloud is currently in private beta. Join the waitlist at https://fastapicloud.com
 
 ```bash
 uv run fastapi login
@@ -25,8 +20,3 @@ uv run fastapi deploy
 
 - `main.py` - Your FastAPI application
 - `pyproject.toml` - Project dependencies
-
-## Learn More
-
-- [FastAPI Documentation](https://fastapi.tiangolo.com)
-- [FastAPI Cloud](https://fastapicloud.com)
