@@ -6,306 +6,271 @@ import shutil
 import tempfile
 import zipfile
 import uuid
-from github import Github, Auth
+from github import Github, Auth, GithubException
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# In-memory cache for installation access tokens
-# Format: {installation_id: {"token": str, "expires_at": int}}
-TOKEN_CACHE = {}
-
-# Base directory to store cloned repositories (pointing to root/repos)
-BASE_REPO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "repos")
-
-GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
-# Load the PEM file contents from an environment variable
-GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY").replace("\\n", "\n")
-GITHUB_INSTALLATION_ID = os.getenv("GITHUB_INSTALLATION_ID")
-GITHUB_OWNER_NAME = os.getenv("GITHUB_OWNER_NAME")
-
-def get_jwt() -> str:
-    """Generates a JWT token for the GitHub App."""
-    if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
-        raise ValueError("GitHub App ID or Private Key not found in environment (GITHUB_APP_ID, GITHUB_PRIVATE_KEY)")
-
-    now = int(time.time())
-    payload = {
-        "iat": now - 60, # 60 seconds ago to handle clock skew
-        "exp": now + (10 * 60), # 10 minutes maximum expiration
-        "iss": GITHUB_APP_ID
-    }
-    
-    try:
-        encoded_jwt = jwt.encode(payload, GITHUB_PRIVATE_KEY, algorithm="RS256")
-        return encoded_jwt
-    except Exception as e:
-        raise Exception(f"Failed to generate JWT. This is usually due to an incorrectly formatted GITHUB_PRIVATE_KEY in .env. Original error: {str(e)}")
-
-def get_installation_access_token(installation_id: int, app_jwt: str = None) -> str:
-    """Retrieves an installation access token using the JWT, with caching."""
-    global TOKEN_CACHE
-    
-    now = int(time.time())
-    
-    # Check if token exists and is still valid (with a 60s buffer)
-    cached_entry = TOKEN_CACHE.get(installation_id)
-    if cached_entry and cached_entry["expires_at"] > (now + 60):
-        return cached_entry["token"]
+class GitHubService:
+    def __init__(self):
+        # In-memory cache for installation access tokens
+        # Format: {installation_id: {"token": str, "expires_at": int}}
+        self._token_cache = {}
         
-    if not app_jwt:
-        app_jwt = get_jwt()
-        
-    headers = {
-        "Authorization": f"Bearer {app_jwt}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
-    
-    response = httpx.post(url, headers=headers)
-    response.raise_for_status()
-    data = response.json()
-    
-    token = data["token"]
-    # GitHub tokens usually last 1 hour. We parse the expires_at from GitHub if available, 
-    # or just use a safe window from now. GitHub returns "expires_at": "2024-..."
-    # For simplicity and safety, we'll cache it based on the current time + 55 mins.
-    TOKEN_CACHE[installation_id] = {
-        "token": token,
-        "expires_at": now + (55 * 60) 
-    }
-    
-    return token
+        # Base directory to store cloned repositories (pointing to root/repos)
+        self.base_repo_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
+            "repos"
+        )
 
-def find_installation_for_repo(repo_name: str):
-    """
-    Optimized: Returns the configured owner and installation_id from environment variables.
-    Falls back to searching all installations if ENV is missing.
-    """
-    if GITHUB_INSTALLATION_ID and GITHUB_OWNER_NAME:
-        return {
-            "installation_id": int(GITHUB_INSTALLATION_ID),
-            "owner": GITHUB_OWNER_NAME,
-            "repo_name": repo_name
+    def _get_jwt(self) -> str:
+        """Generates a JWT token for the GitHub App."""
+        app_id = os.getenv("GITHUB_APP_ID")
+        private_key = os.getenv("GITHUB_PRIVATE_KEY")
+        
+        if not app_id or not private_key:
+            raise ValueError("GitHub App ID or Private Key not found in environment (GITHUB_APP_ID, GITHUB_PRIVATE_KEY)")
+
+        private_key = private_key.replace("\\n", "\n")
+        
+        now = int(time.time())
+        payload = {
+            "iat": now - 60,         # 60 seconds ago to handle clock skew
+            "exp": now + (10 * 60),  # 10 minutes maximum expiration
+            "iss": app_id
         }
-
-    # Fallback to slower search logic if ENV is missing
-    app_jwt = get_jwt()
-    headers = {
-        "Authorization": f"Bearer {app_jwt}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    
-    # 1. Get all installations
-    url = "https://api.github.com/app/installations"
-    response = httpx.get(url, headers=headers)
-    response.raise_for_status()
-    installations = response.json()
-    
-    for inst in installations:
-        inst_id = inst["id"]
-        # 2. Reuse the same app_jwt to get installation tokens
-        token = get_installation_access_token(inst_id, app_jwt=app_jwt)
-        repo_url = "https://api.github.com/installation/repositories"
-        repo_response = httpx.get(repo_url, headers={"Authorization": f"token {token}"})
-        repos = repo_response.json().get("repositories", [])
         
-        # 3. Check if repo matches
-        for r in repos:
-            if r["name"].lower() == repo_name.lower():
-                return {
-                    "installation_id": inst_id,
-                    "owner": r["owner"]["login"],
-                    "repo_name": r["name"]
-                }
-                
-    raise Exception(f"Repository '{repo_name}' not found. Make sure the GitHub App is installed and GITHUB_INSTALLATION_ID is correct if provided.")
-
-def get_github_client(installation_id: int, token: str = None) -> Github:
-    """Returns an authenticated PyGithub client for a specific installation."""
-    if not token:
-        token = get_installation_access_token(installation_id)
-    auth = Auth.Token(token)
-    return Github(auth=auth)
-
-def clone_repo(installation_id: int, owner: str, repo_name: str, token: str = None, ref: str = "main"):
-    """
-    Downloads and extracts a repository archive into a UNIQUE sandbox folder.
-    Ensures that multiple concurrent requests don't interfere with each other.
-    """
-    if not token:
-        token = get_installation_access_token(installation_id)
-        
-    url = f"https://api.github.com/repos/{owner}/{repo_name}/zipball/{ref}"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    # Generate a unique run ID for this request
-    run_id = str(uuid.uuid4())[:8]
-    # Destination structure: repos/owner/repo_name_runid
-    dest_path = os.path.join(BASE_REPO_DIR, owner, f"{repo_name}_{run_id}")
-    
-    # Ensure parent directory exists
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    # Cleanup should not be needed as it's a unique folder, but for safety:
-    if os.path.exists(dest_path):
-        shutil.rmtree(dest_path)
-    os.makedirs(dest_path, exist_ok=True)
-
-    # Use a temporary file to store the downloaded zip
-    with tempfile.NamedTemporaryFile() as tmp_file:
-        with httpx.stream("GET", url, headers=headers, follow_redirects=True) as response:
-            response.raise_for_status()
-            for chunk in response.iter_bytes():
-                tmp_file.write(chunk)
-        
-        tmp_file.seek(0)
-        with zipfile.ZipFile(tmp_file) as z:
-            top_level_dir = z.namelist()[0].split('/')[0]
-            for member in z.infolist():
-                if member.filename == f"{top_level_dir}/":
-                    continue
-                relative_path = member.filename[len(top_level_dir)+1:]
-                if not relative_path:
-                    continue
-                target_path = os.path.join(dest_path, relative_path)
-                if member.is_dir():
-                    os.makedirs(target_path, exist_ok=True)
-                else:
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    with open(target_path, 'wb') as f:
-                        f.write(z.read(member))
-
-    return {
-        "status": "success",
-        "message": f"Successfully sandboxed {owner}/{repo_name}",
-        "local_path": dest_path,
-        "run_id": run_id
-    }
-
-def cleanup_repo(local_path: str):
-    """Removes a sandbox directory with error handling for locked files."""
-    if not local_path:
-        return
-        
-    if os.path.exists(local_path):
         try:
-            # We use ignore_errors=True or a handler if we want to be very aggressive, 
-            # but standard rmtree should work for downloaded ZIP contents.
-            shutil.rmtree(local_path)
+            return jwt.encode(payload, private_key, algorithm="RS256")
         except Exception as e:
-            # If it fails (e.g. file busy), we at least want to know
-            print(f"Cleanup Error for {local_path}: {e}")
-    return {"status": "success", "message": f"Cleanup attempted for {local_path}"}
+            raise Exception(f"Failed to generate JWT. Check GITHUB_PRIVATE_KEY format. Error: {str(e)}")
 
-def purge_all_sandboxes():
-    """Finds and deletes all folders with a unique ID suffix in the repos directory."""
-    cleaned = []
-    errors = []
-    
-    # Walk through the repos directory
-    if os.path.exists(BASE_REPO_DIR):
-        for root, dirs, files in os.walk(BASE_REPO_DIR):
-            for d in dirs:
-                # Our sandboxes look like repo-name_runid
-                if "_" in d and len(d.split("_")[-1]) == 8:
-                    full_path = os.path.join(root, d)
-                    try:
-                        shutil.rmtree(full_path)
-                        cleaned.append(full_path)
-                    except Exception as e:
-                        errors.append(f"Failed to delete {full_path}: {e}")
-            
-            # We only want to check the top levels for our sandbox pattern usually, 
-            # but walk handles nested structures if they exist.
-    
-    return {
-        "status": "success",
-        "message": f"Purged {len(cleaned)} sandboxes",
-        "cleaned": cleaned,
-        "errors": errors
-    }
-
-
-def _get_github_repo(installation_id: int, owner: str, repo_name: str, token: str = None):
-    """Helper to get an authenticated repo object."""
-    client = get_github_client(installation_id, token=token)
-    return client.get_repo(f"{owner}/{repo_name}")
-
-def create_branch(installation_id: int, owner: str, repo_name: str, base_branch: str, new_branch: str, token: str = None):
-    """Creates a new branch off a base branch."""
-    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
-    base_ref = repo.get_git_ref(f"heads/{base_branch}")
-    new_ref_name = f"refs/heads/{new_branch}"
-    repo.create_git_ref(ref=new_ref_name, sha=base_ref.object.sha)
-    return {"message": f"Branch {new_branch} created from {base_branch}"}
-
-def find_file_in_repo(installation_id: int, owner: str, repo_name: str, file_path: str, ref: str = "main", token: str = None):
-    """Finds and retrieves a specific file from the repository."""
-    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
-    try:
-        file_contents = repo.get_contents(file_path, ref=ref)
-        if isinstance(file_contents, list):
-            return {"error": "Path points to a directory, not a specific file."}
+    def get_installation_access_token(self, installation_id: int, app_jwt: str = None) -> str:
+        """Retrieves an installation access token using the JWT, with caching."""
+        now = int(time.time())
         
-        content = file_contents.decoded_content.decode('utf-8')
-        return {
-            "path": file_contents.path,
-            "sha": file_contents.sha,
-            "content": content
+        # Check cache
+        cached_entry = self._token_cache.get(installation_id)
+        if cached_entry and cached_entry["expires_at"] > (now + 60):
+            return cached_entry["token"]
+            
+        if not app_jwt:
+            app_jwt = self._get_jwt()
+            
+        headers = {
+            "Authorization": f"Bearer {app_jwt}",
+            "Accept": "application/vnd.github.v3+json"
         }
-    except Exception as e:
-        return {"error": str(e)}
+        url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+        
+        response = httpx.post(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        
+        token = data["token"]
+        # Cache for 55 minutes
+        self._token_cache[installation_id] = {
+            "token": token,
+            "expires_at": now + (55 * 60) 
+        }
+        
+        return token
 
-def commit_file_to_branch(installation_id: int, owner: str, repo_name: str, branch_name: str, file_path: str, content: str, message: str, token: str = None):
-    """Creates or updates a file in a specific branch."""
-    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
-    try:
-        file_contents = repo.get_contents(file_path, ref=branch_name)
-        sha = file_contents.sha
-        repo.update_file(
-            path=file_path,
-            message=message,
-            content=content,
-            sha=sha,
-            branch=branch_name
-        )
-        return {"message": f"File {file_path} updated in branch {branch_name}"}
-    except Exception:
-        # File doesn't exist, create it
-        repo.create_file(
-            path=file_path,
-            message=message,
-            content=content,
-            branch=branch_name
-        )
-        return {"message": f"File {file_path} created in branch {branch_name}"}
+    def find_installation_for_repo(self, repo_name: str):
+        """Optimized lookup from env, falls back to searching app installations."""
+        inst_id_env = os.getenv("GITHUB_INSTALLATION_ID")
+        owner_env = os.getenv("GITHUB_OWNER_NAME")
 
-def get_repo_tree(installation_id: int, owner: str, repo_name: str, ref: str = "main", token: str = None):
-    """Returns the recursive file tree of the repository."""
-    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
-    sha = repo.get_branch(ref).commit.sha
-    tree = repo.get_git_tree(sha, recursive=True)
-    return {
-        "tree": [
-            {"path": element.path, "type": element.type, "size": element.size}
-            for element in tree.tree
-        ]
-    }
+        if inst_id_env and owner_env:
+            return {
+                "installation_id": int(inst_id_env),
+                "owner": owner_env,
+                "repo_name": repo_name
+            }
 
-def create_pull_request(installation_id: int, owner: str, repo_name: str, title: str, body: str, head_branch: str, base_branch: str = "main", token: str = None):
-    """Creates a Pull Request from head_branch into base_branch."""
-    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
-    pr = repo.create_pull(
-        title=title,
-        body=body,
-        head=head_branch,
-        base=base_branch
-    )
-    return {
-        "pr_number": pr.number,
-        "pr_url": pr.html_url,
-        "state": pr.state
-    }
+        app_jwt = self._get_jwt()
+        headers = {
+            "Authorization": f"Bearer {app_jwt}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        # Get installations
+        url = "https://api.github.com/app/installations"
+        response = httpx.get(url, headers=headers)
+        response.raise_for_status()
+        installations = response.json()
+        
+        for inst in installations:
+            inst_id = inst["id"]
+            token = self.get_installation_access_token(inst_id, app_jwt=app_jwt)
+            repo_url = "https://api.github.com/installation/repositories"
+            repo_response = httpx.get(repo_url, headers={"Authorization": f"token {token}"})
+            repos = repo_response.json().get("repositories", [])
+            
+            for r in repos:
+                if r["name"].lower() == repo_name.lower():
+                    return {
+                        "installation_id": inst_id,
+                        "owner": r["owner"]["login"],
+                        "repo_name": r["name"]
+                    }
+                    
+        raise Exception(f"Repository '{repo_name}' not found for this GitHub App.")
+
+    def get_github_client(self, installation_id: int, token: str = None) -> Github:
+        """Returns an authenticated PyGithub client."""
+        if not token:
+            token = self.get_installation_access_token(installation_id)
+        return Github(auth=Auth.Token(token))
+
+    def _get_repo_object(self, installation_id: int, owner: str, repo_name: str, token: str = None):
+        """Helper to get a PyGithub repo object."""
+        client = self.get_github_client(installation_id, token=token)
+        return client.get_repo(f"{owner}/{repo_name}")
+
+    def clone_repo(self, installation_id: int, owner: str, repo_name: str, token: str = None, ref: str = "main"):
+        """Downloads repo archive and extracts into a unique sandbox."""
+        if not token:
+            token = self.get_installation_access_token(installation_id)
+            
+        url = f"https://api.github.com/repos/{owner}/{repo_name}/zipball/{ref}"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+
+        run_id = str(uuid.uuid4())[:8]
+        dest_path = os.path.join(self.base_repo_dir, owner, f"{repo_name}_{run_id}")
+        
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        if os.path.exists(dest_path):
+            shutil.rmtree(dest_path)
+        os.makedirs(dest_path, exist_ok=True)
+
+        with tempfile.NamedTemporaryFile() as tmp_file:
+            with httpx.stream("GET", url, headers=headers, follow_redirects=True) as response:
+                response.raise_for_status()
+                for chunk in response.iter_bytes():
+                    tmp_file.write(chunk)
+            
+            tmp_file.seek(0)
+            with zipfile.ZipFile(tmp_file) as z:
+                top_level_dir = z.namelist()[0].split('/')[0]
+                for member in z.infolist():
+                    if member.filename == f"{top_level_dir}/":
+                        continue
+                    relative_path = member.filename[len(top_level_dir)+1:]
+                    if not relative_path:
+                        continue
+                    target_path = os.path.join(dest_path, relative_path)
+                    if member.is_dir():
+                        os.makedirs(target_path, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        with open(target_path, 'wb') as f:
+                            f.write(z.read(member))
+
+        return {
+            "status": "success",
+            "message": f"Successfully sandboxed {owner}/{repo_name}",
+            "local_path": dest_path,
+            "run_id": run_id
+        }
+
+    def cleanup_repo(self, local_path: str):
+        """Removes a sandbox directory."""
+        if local_path and os.path.exists(local_path):
+            try:
+                shutil.rmtree(local_path)
+            except Exception as e:
+                print(f"Cleanup Error for {local_path}: {e}")
+        return {"status": "success"}
+
+    def purge_all_sandboxes(self):
+        """Finds and deletes all folders with a unique ID suffix in the repos directory."""
+        cleaned = []
+        errors = []
+        if os.path.exists(self.base_repo_dir):
+            for root, dirs, files in os.walk(self.base_repo_dir):
+                for d in dirs:
+                    if "_" in d and len(d.split("_")[-1]) == 8:
+                        full_path = os.path.join(root, d)
+                        try:
+                            shutil.rmtree(full_path)
+                            cleaned.append(full_path)
+                        except Exception as e:
+                            errors.append(f"Failed to delete {full_path}: {e}")
+        
+        return {"status": "success", "purged": len(cleaned), "errors": errors}
+
+    def create_branch(self, installation_id: int, owner: str, repo_name: str, base_branch: str, new_branch: str, token: str = None):
+        """Creates a new branch off a base branch. If branch exists, returns success."""
+        repo = self._get_repo_object(installation_id, owner, repo_name, token=token)
+        
+        try:
+            # Check if it already exists
+            repo.get_git_ref(f"heads/{new_branch}")
+            return {"message": f"Branch {new_branch} already exists", "status": "existing"}
+        except GithubException as e:
+            if e.status == 404:
+                # Branch doesn't exist, create it
+                base_ref = repo.get_git_ref(f"heads/{base_branch}")
+                repo.create_git_ref(ref=f"refs/heads/{new_branch}", sha=base_ref.object.sha)
+                return {"message": f"Branch {new_branch} created", "status": "created"}
+            # If it's some other error (auth, rate limit, etc), re-raise it
+            raise e
+
+    def find_file_in_repo(self, installation_id: int, owner: str, repo_name: str, file_path: str, ref: str = "main", token: str = None):
+        """Retrieves file content."""
+        repo = self._get_repo_object(installation_id, owner, repo_name, token=token)
+        try:
+            file_contents = repo.get_contents(file_path, ref=ref)
+            if isinstance(file_contents, list):
+                return {"error": "Path is a directory"}
+            return {
+                "path": file_contents.path,
+                "sha": file_contents.sha,
+                "content": file_contents.decoded_content.decode('utf-8')
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    def commit_file_to_branch(self, installation_id: int, owner: str, repo_name: str, branch_name: str, file_path: str, content: str, message: str, token: str = None):
+        """Creates or updates a file."""
+        repo = self._get_repo_object(installation_id, owner, repo_name, token=token)
+        try:
+            file_contents = repo.get_contents(file_path, ref=branch_name)
+            repo.update_file(path=file_path, message=message, content=content, sha=file_contents.sha, branch=branch_name)
+            return {"message": f"File {file_path} updated"}
+        except Exception:
+            repo.create_file(path=file_path, message=message, content=content, branch=branch_name)
+            return {"message": f"File {file_path} created"}
+
+    def get_repo_tree(self, installation_id: int, owner: str, repo_name: str, ref: str = "main", token: str = None):
+        """Returns recursive file tree."""
+        repo = self._get_repo_object(installation_id, owner, repo_name, token=token)
+        sha = repo.get_branch(ref).commit.sha
+        tree = repo.get_git_tree(sha, recursive=True)
+        return {
+            "tree": [
+                {"path": item.path, "type": item.type, "size": item.size}
+                for item in tree.tree
+            ]
+        }
+
+    def create_pull_request(self, installation_id: int, owner: str, repo_name: str, title: str, body: str, head_branch: str, base_branch: str = "main", token: str = None):
+        """Creates a PR. If one already exists for this branch, returns the existing one."""
+        repo = self._get_repo_object(installation_id, owner, repo_name, token=token)
+        try:
+            pr = repo.create_pull(title=title, body=body, head=head_branch, base=base_branch)
+            return {"pr_number": pr.number, "pr_url": pr.html_url, "status": "created"}
+        except GithubException as e:
+            if e.status == 422:
+                # Often means PR already exists. Let's try to find it.
+                pulls = repo.get_pulls(state='open', head=f"{owner}:{head_branch}", base=base_branch)
+                for pr in pulls:
+                    return {"pr_number": pr.number, "pr_url": pr.html_url, "status": "existing"}
+            raise e
+
+# Singleton instance
+github_service = GitHubService()
