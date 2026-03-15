@@ -19,6 +19,8 @@ BASE_REPO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "repos"
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
 # Load the PEM file contents from an environment variable
 GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY").replace("\\n", "\n")
+GITHUB_INSTALLATION_ID = os.getenv("GITHUB_INSTALLATION_ID")
+GITHUB_OWNER_NAME = os.getenv("GITHUB_OWNER_NAME")
 
 def get_jwt() -> str:
     """Generates a JWT token for the GitHub App."""
@@ -75,10 +77,18 @@ def get_installation_access_token(installation_id: int, app_jwt: str = None) -> 
 
 def find_installation_for_repo(repo_name: str):
     """
-    Searches through all app installations to find the owner and installation_id
-    for a specific repository name.
+    Optimized: Returns the configured owner and installation_id from environment variables.
+    Falls back to searching all installations if ENV is missing.
     """
-    app_jwt = get_jwt() # Generate ONCE
+    if GITHUB_INSTALLATION_ID and GITHUB_OWNER_NAME:
+        return {
+            "installation_id": int(GITHUB_INSTALLATION_ID),
+            "owner": GITHUB_OWNER_NAME,
+            "repo_name": repo_name
+        }
+
+    # Fallback to slower search logic if ENV is missing
+    app_jwt = get_jwt()
     headers = {
         "Authorization": f"Bearer {app_jwt}",
         "Accept": "application/vnd.github.v3+json"
@@ -90,18 +100,13 @@ def find_installation_for_repo(repo_name: str):
     response.raise_for_status()
     installations = response.json()
     
-    print(f"DEBUG: Found {len(installations)} installations for the app.")
-    
     for inst in installations:
         inst_id = inst["id"]
         # 2. Reuse the same app_jwt to get installation tokens
         token = get_installation_access_token(inst_id, app_jwt=app_jwt)
         repo_url = "https://api.github.com/installation/repositories"
         repo_response = httpx.get(repo_url, headers={"Authorization": f"token {token}"})
-        repos_data = repo_response.json()
-        repos = repos_data.get("repositories", [])
-        
-        print(f"DEBUG: Checking {len(repos)} repos in account '{inst['account']['login']}'")
+        repos = repo_response.json().get("repositories", [])
         
         # 3. Check if repo matches
         for r in repos:
@@ -112,7 +117,7 @@ def find_installation_for_repo(repo_name: str):
                     "repo_name": r["name"]
                 }
                 
-    raise Exception(f"Repository '{repo_name}' not found. Make sure the GitHub App is installed on the correct account and has 'Metadata' and 'Contents' permissions.")
+    raise Exception(f"Repository '{repo_name}' not found. Make sure the GitHub App is installed and GITHUB_INSTALLATION_ID is correct if provided.")
 
 def get_github_client(installation_id: int) -> Github:
     """Returns an authenticated PyGithub client for a specific installation."""
