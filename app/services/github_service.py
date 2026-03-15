@@ -119,18 +119,20 @@ def find_installation_for_repo(repo_name: str):
                 
     raise Exception(f"Repository '{repo_name}' not found. Make sure the GitHub App is installed and GITHUB_INSTALLATION_ID is correct if provided.")
 
-def get_github_client(installation_id: int) -> Github:
+def get_github_client(installation_id: int, token: str = None) -> Github:
     """Returns an authenticated PyGithub client for a specific installation."""
-    token = get_installation_access_token(installation_id)
+    if not token:
+        token = get_installation_access_token(installation_id)
     auth = Auth.Token(token)
     return Github(auth=auth)
 
-def clone_repo(installation_id: int, owner: str, repo_name: str):
+def clone_repo(installation_id: int, owner: str, repo_name: str, token: str = None):
     """
     Clones a repository into the 'repos' folder. 
     If the folder already exists, it replaces it with a fresh clone.
     """
-    token = get_installation_access_token(installation_id)
+    if not token:
+        token = get_installation_access_token(installation_id)
     clone_url = f"https://x-access-token:{token}@github.com/{owner}/{repo_name}.git"
     
     # Destination structure: repos/owner/repo_name
@@ -155,22 +157,22 @@ def clone_repo(installation_id: int, owner: str, repo_name: str):
     }
 
 
-def _get_github_repo(installation_id: int, owner: str, repo_name: str):
+def _get_github_repo(installation_id: int, owner: str, repo_name: str, token: str = None):
     """Helper to get an authenticated repo object."""
-    client = get_github_client(installation_id)
+    client = get_github_client(installation_id, token=token)
     return client.get_repo(f"{owner}/{repo_name}")
 
-def create_branch(installation_id: int, owner: str, repo_name: str, base_branch: str, new_branch: str):
+def create_branch(installation_id: int, owner: str, repo_name: str, base_branch: str, new_branch: str, token: str = None):
     """Creates a new branch off a base branch."""
-    repo = _get_github_repo(installation_id, owner, repo_name)
+    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
     base_ref = repo.get_git_ref(f"heads/{base_branch}")
     new_ref_name = f"refs/heads/{new_branch}"
     repo.create_git_ref(ref=new_ref_name, sha=base_ref.object.sha)
     return {"message": f"Branch {new_branch} created from {base_branch}"}
 
-def find_file_in_repo(installation_id: int, owner: str, repo_name: str, file_path: str, ref: str = "main"):
+def find_file_in_repo(installation_id: int, owner: str, repo_name: str, file_path: str, ref: str = "main", token: str = None):
     """Finds and retrieves a specific file from the repository."""
-    repo = _get_github_repo(installation_id, owner, repo_name)
+    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
     try:
         file_contents = repo.get_contents(file_path, ref=ref)
         if isinstance(file_contents, list):
@@ -185,9 +187,9 @@ def find_file_in_repo(installation_id: int, owner: str, repo_name: str, file_pat
     except Exception as e:
         return {"error": str(e)}
 
-def commit_file_to_branch(installation_id: int, owner: str, repo_name: str, branch_name: str, file_path: str, content: str, message: str):
+def commit_file_to_branch(installation_id: int, owner: str, repo_name: str, branch_name: str, file_path: str, content: str, message: str, token: str = None):
     """Creates or updates a file in a specific branch."""
-    repo = _get_github_repo(installation_id, owner, repo_name)
+    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
     try:
         file_contents = repo.get_contents(file_path, ref=branch_name)
         sha = file_contents.sha
@@ -209,9 +211,9 @@ def commit_file_to_branch(installation_id: int, owner: str, repo_name: str, bran
         )
         return {"message": f"File {file_path} created in branch {branch_name}"}
 
-def get_repo_tree(installation_id: int, owner: str, repo_name: str, ref: str = "main"):
+def get_repo_tree(installation_id: int, owner: str, repo_name: str, ref: str = "main", token: str = None):
     """Returns the recursive file tree of the repository."""
-    repo = _get_github_repo(installation_id, owner, repo_name)
+    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
     sha = repo.get_branch(ref).commit.sha
     tree = repo.get_git_tree(sha, recursive=True)
     return {
@@ -221,9 +223,9 @@ def get_repo_tree(installation_id: int, owner: str, repo_name: str, ref: str = "
         ]
     }
 
-def create_pull_request(installation_id: int, owner: str, repo_name: str, title: str, body: str, head_branch: str, base_branch: str = "main"):
+def create_pull_request(installation_id: int, owner: str, repo_name: str, title: str, body: str, head_branch: str, base_branch: str = "main", token: str = None):
     """Creates a Pull Request from head_branch into base_branch."""
-    repo = _get_github_repo(installation_id, owner, repo_name)
+    repo = _get_github_repo(installation_id, owner, repo_name, token=token)
     pr = repo.create_pull(
         title=title,
         body=body,
