@@ -13,8 +13,6 @@ paths:
       tags:
         - Pet
       summary: Create pet
-      description: Create a new pet
-      operationId: createPet
       requestBody:
         required: true
         content:
@@ -30,16 +28,10 @@ paths:
                 $ref: "#/components/schemas/petResponse"
         '400':
           description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/errorResponse"
     get:
       tags:
         - Pet
       summary: List pets
-      description: List all pets
-      operationId: listPets
       responses:
         '200':
           description: List of pets
@@ -47,51 +39,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/listPetsResponse"
-        '400':
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/errorResponse"
   /pets/{petId}:
     get:
       tags:
         - Pet
       summary: Get pet by id
-      description: Get a pet by id
-      operationId: getPet
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
           description: Pet id
       responses:
         '200':
-          description: Pet found
+          description: Pet details
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/petResponse"
         '404':
           description: Pet not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/errorResponse"
     put:
       tags:
         - Pet
       summary: Update pet
-      description: Update a pet
-      operationId: updatePet
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
           description: Pet id
       requestBody:
         required: true
@@ -108,22 +86,16 @@ paths:
                 $ref: "#/components/schemas/petResponse"
         '400':
           description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/errorResponse"
     delete:
       tags:
         - Pet
       summary: Delete pet
-      description: Delete a pet
-      operationId: deletePet
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
           description: Pet id
       responses:
         '200':
@@ -134,10 +106,6 @@ paths:
                 $ref: "#/components/schemas/deleteResponse"
         '404':
           description: Pet not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/errorResponse"
 components:
   schemas:
     createPetRequest:
@@ -159,11 +127,6 @@ components:
           type: string
           description: Pet category
     deleteResponse:
-      type: object
-      properties:
-        message:
-          type: string
-    errorResponse:
       type: object
       properties:
         message:
