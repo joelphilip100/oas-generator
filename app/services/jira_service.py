@@ -146,5 +146,6 @@ class JiraService:
             response.raise_for_status()
             return response.content
 
+
 # Singleton instance for easy import
 jira_service = JiraService()
