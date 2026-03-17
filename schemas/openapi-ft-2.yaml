@@ -47,10 +47,9 @@ paths:
       parameters:
         - in: path
           name: petId
+          required: true
           schema:
             type: integer
-          required: true
-          description: Pet id
       responses:
         '200':
           description: Pet details
@@ -67,10 +66,9 @@ paths:
       parameters:
         - in: path
           name: petId
+          required: true
           schema:
             type: integer
-          required: true
-          description: Pet id
       requestBody:
         required: true
         content:
@@ -93,10 +91,9 @@ paths:
       parameters:
         - in: path
           name: petId
+          required: true
           schema:
             type: integer
-          required: true
-          description: Pet id
       responses:
         '200':
           description: Pet deleted
