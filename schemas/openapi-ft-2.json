@@ -1,16 +1,238 @@
 {
-  "openapi": "3.0.0",
+  "openapi": "3.1.0",
   "info": {
-    "title": "Create OAS base file for pet hospital",
-    "version": "1.0.0",
-    "description": "Automatically generated from Jira Issue FT-2"
+    "title": "Pet Hospital API",
+    "description": "This is a sample project",
+    "version": "1.0.0"
   },
+  "servers": [
+    {
+      "url": "https://petstore-api.com"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Pet",
+      "description": "Pet operations"
+    }
+  ],
   "paths": {
-    "/example": {
-      "get": {
+    "/pets": {
+      "post": {
+        "tags": [
+          "Pet"
+        ],
+        "summary": "Create pet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "createPetRequest.json"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "Pet created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "petResponse.json"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Pet"
+        ],
+        "summary": "List pets",
+        "responses": {
+          "200": {
+            "description": "Pets listed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "listPetsResponse.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pets/{petId}": {
+      "get": {
+        "tags": [
+          "Pet"
+        ],
+        "summary": "Get pet by id",
+        "parameters": [
+          {
+            "name": "petId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pet retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "petResponse.json"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Pet"
+        ],
+        "summary": "Update pet",
+        "parameters": [
+          {
+            "name": "petId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "updatePetRequest.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pet updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "petResponse.json"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Pet"
+        ],
+        "summary": "Delete pet",
+        "parameters": [
+          {
+            "name": "petId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pet deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "deleteResponse.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "createPetRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the pet"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "pending",
+              "sold"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "description": "Pet category"
+          }
+        }
+      },
+      "deleteResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "listPetsResponse": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/petResponse"
+        }
+      },
+      "petResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      },
+      "updatePetRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "pending",
+              "sold"
+            ]
           }
         }
       }
