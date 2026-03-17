@@ -1,124 +1,16 @@
 openapi: 3.1.0
 info:
   title: Pet Hospital API
-  description: API for managing pets in a hospital
+  description: API for pet hospital
   version: 1.0.0
 servers:
-  - url: /pets
+  - url: /v1
 tags:
   - name: Pet
-paths:
-  /pets:
-    post:
-      tags:
-        - Pet
-      summary: Create pet
-      description: Create a new pet
-      operationId: createPet
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreatePetRequest"
-      responses:
-        '201':
-          description: Pet created successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PetResponse"
-        '400':
-          description: Invalid request
-    get:
-      tags:
-        - Pet
-      summary: List pets
-      description: Get a list of all pets
-      operationId: listPets
-      responses:
-        '200':
-          description: List of pets
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListPetsResponse"
-  /pets/{petId}:
-    get:
-      tags:
-        - Pet
-      summary: Get pet by id
-      description: Get a pet by its id
-      operationId: getPet
-      parameters:
-        - in: path
-          name: petId
-          required: true
-          schema:
-            type: integer
-          description: The id of the pet
-      responses:
-        '200':
-          description: Pet found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PetResponse"
-        '404':
-          description: Pet not found
-    put:
-      tags:
-        - Pet
-      summary: Update pet
-      description: Update a pet
-      operationId: updatePet
-      parameters:
-        - in: path
-          name: petId
-          required: true
-          schema:
-            type: integer
-          description: The id of the pet
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdatePetRequest"
-      responses:
-        '200':
-          description: Pet updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PetResponse"
-        '400':
-          description: Invalid request
-    delete:
-      tags:
-        - Pet
-      summary: Delete pet
-      description: Delete a pet
-      operationId: deletePet
-      parameters:
-        - in: path
-          name: petId
-          required: true
-          schema:
-            type: integer
-          description: The id of the pet
-      responses:
-        '200':
-          description: Pet deleted successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DeleteResponse"
-        '404':
-          description: Pet not found
+    description: Pet operations
 components:
   schemas:
-    CreatePetRequest:
+    createPetRequest:
       type: object
       required:
         - name
@@ -136,22 +28,7 @@ components:
         category:
           type: string
           description: Pet category
-    PetResponse:
-      type: object
-      properties:
-        id:
-          type: integer
-        name:
-          type: string
-        status:
-          type: string
-        category:
-          type: string
-    ListPetsResponse:
-      type: array
-      items:
-        $ref: "#/components/schemas/PetResponse"
-    UpdatePetRequest:
+    updatePetRequest:
       type: object
       properties:
         name:
@@ -162,8 +39,121 @@ components:
             - available
             - pending
             - sold
-    DeleteResponse:
+    petResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+        category:
+          type: string
+    deleteResponse:
       type: object
       properties:
         message:
           type: string
+    listPetsResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/petResponse'
+paths:
+  /pets:
+    post:
+      tags:
+        - Pet
+      summary: Create pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/createPetRequest'
+      responses:
+        '201':
+          description: Pet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/petResponse'
+        '400':
+          description: Invalid request
+    get:
+      tags:
+        - Pet
+      summary: List pets
+      responses:
+        '200':
+          description: List of pets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/listPetsResponse'
+        '400':
+          description: Invalid request
+  /pets/{petId}:
+    get:
+      tags:
+        - Pet
+      summary: Get pet by id
+      parameters:
+        - in: path
+          name: petId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Pet details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/petResponse'
+        '404':
+          description: Pet not found
+    put:
+      tags:
+        - Pet
+      summary: Update pet
+      parameters:
+        - in: path
+          name: petId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/updatePetRequest'
+      responses:
+        '200':
+          description: Pet updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/petResponse'
+        '400':
+          description: Invalid request
+    delete:
+      tags:
+        - Pet
+      summary: Delete pet
+      parameters:
+        - in: path
+          name: petId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Pet deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/deleteResponse'
+        '404':
+          description: Pet not found
