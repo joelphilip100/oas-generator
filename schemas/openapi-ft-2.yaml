@@ -1,114 +1,101 @@
 openapi: 3.1.0
 info:
   title: Pet Hospital API
-  description: API for managing pets in a hospital
+  description: API for pet hospital
   version: 1.0.0
 servers:
   - url: /pets
 tags:
   - name: Pet
-    description: Pet operations
 paths:
   /pets:
     post:
       tags:
         - Pet
       summary: Create pet
-      description: Create a new pet
-      operationId: createPet
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: 'createPetRequest.json'
+              $ref: "#/components/schemas/createPetRequest"
       responses:
         '201':
           description: Pet created
           content:
             application/json:
               schema:
-                $ref: 'petResponse.json'
+                $ref: "#/components/schemas/petResponse"
         '400':
           description: Invalid request
     get:
       tags:
         - Pet
       summary: List pets
-      description: List all pets
-      operationId: listPets
       responses:
         '200':
-          description: Pets listed
+          description: List of pets
           content:
             application/json:
               schema:
-                $ref: 'listPetsResponse.json'
-        '400':
-          description: Invalid request
+                $ref: "#/components/schemas/listPetsResponse"
   /pets/{petId}:
     get:
       tags:
         - Pet
       summary: Get pet by id
-      description: Get a pet by id
-      operationId: getPet
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
           description: Pet id
       responses:
         '200':
-          description: Pet retrieved
+          description: Pet details
           content:
             application/json:
               schema:
-                $ref: 'petResponse.json'
+                $ref: "#/components/schemas/petResponse"
         '404':
           description: Pet not found
     put:
       tags:
         - Pet
       summary: Update pet
-      description: Update a pet
-      operationId: updatePet
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
           description: Pet id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: 'updatePetRequest.json'
+              $ref: "#/components/schemas/updatePetRequest"
       responses:
         '200':
           description: Pet updated
           content:
             application/json:
               schema:
-                $ref: 'petResponse.json'
+                $ref: "#/components/schemas/petResponse"
         '400':
           description: Invalid request
     delete:
       tags:
         - Pet
       summary: Delete pet
-      description: Delete a pet
-      operationId: deletePet
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
           description: Pet id
       responses:
         '200':
@@ -116,7 +103,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: 'deleteResponse.json'
+                $ref: "#/components/schemas/deleteResponse"
         '404':
           description: Pet not found
 components:
@@ -139,6 +126,15 @@ components:
         category:
           type: string
           description: Pet category
+    deleteResponse:
+      type: object
+      properties:
+        message:
+          type: string
+    listPetsResponse:
+      type: array
+      items:
+        $ref: "#/components/schemas/petResponse"
     petResponse:
       type: object
       properties:
@@ -161,12 +157,3 @@ components:
             - available
             - pending
             - sold
-    deleteResponse:
-      type: object
-      properties:
-        message:
-          type: string
-    listPetsResponse:
-      type: array
-      items:
-        $ref: '#/components/schemas/petResponse'
