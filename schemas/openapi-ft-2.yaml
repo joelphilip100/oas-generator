@@ -1,0 +1,172 @@
+openapi: 3.1.0
+info:
+  title: Pet Hospital API
+  description: API for managing pets in a hospital
+  version: 1.0.0
+servers:
+  - url: /pets
+tags:
+  - name: Pet
+    description: Pet operations
+paths:
+  /pets:
+    post:
+      tags:
+        - Pet
+      summary: Create pet
+      description: Create a new pet
+      operationId: createPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: 'createPetRequest.json'
+      responses:
+        '201':
+          description: Pet created
+          content:
+            application/json:
+              schema:
+                $ref: 'petResponse.json'
+        '400':
+          description: Invalid request
+    get:
+      tags:
+        - Pet
+      summary: List pets
+      description: List all pets
+      operationId: listPets
+      responses:
+        '200':
+          description: Pets listed
+          content:
+            application/json:
+              schema:
+                $ref: 'listPetsResponse.json'
+        '400':
+          description: Invalid request
+  /pets/{petId}:
+    get:
+      tags:
+        - Pet
+      summary: Get pet by id
+      description: Get a pet by id
+      operationId: getPet
+      parameters:
+        - in: path
+          name: petId
+          required: true
+          schema:
+            type: integer
+          description: Pet id
+      responses:
+        '200':
+          description: Pet retrieved
+          content:
+            application/json:
+              schema:
+                $ref: 'petResponse.json'
+        '404':
+          description: Pet not found
+    put:
+      tags:
+        - Pet
+      summary: Update pet
+      description: Update a pet
+      operationId: updatePet
+      parameters:
+        - in: path
+          name: petId
+          required: true
+          schema:
+            type: integer
+          description: Pet id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: 'updatePetRequest.json'
+      responses:
+        '200':
+          description: Pet updated
+          content:
+            application/json:
+              schema:
+                $ref: 'petResponse.json'
+        '400':
+          description: Invalid request
+    delete:
+      tags:
+        - Pet
+      summary: Delete pet
+      description: Delete a pet
+      operationId: deletePet
+      parameters:
+        - in: path
+          name: petId
+          required: true
+          schema:
+            type: integer
+          description: Pet id
+      responses:
+        '200':
+          description: Pet deleted
+          content:
+            application/json:
+              schema:
+                $ref: 'deleteResponse.json'
+        '404':
+          description: Pet not found
+components:
+  schemas:
+    createPetRequest:
+      type: object
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+          description: Name of the pet
+        status:
+          type: string
+          enum:
+            - available
+            - pending
+            - sold
+        category:
+          type: string
+          description: Pet category
+    petResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+        category:
+          type: string
+    updatePetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - available
+            - pending
+            - sold
+    deleteResponse:
+      type: object
+      properties:
+        message:
+          type: string
+    listPetsResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/petResponse'
