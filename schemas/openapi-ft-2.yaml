@@ -4,7 +4,7 @@ info:
   description: API for pet hospital
   version: 1.0.0
 servers:
-  - url: /pets
+  - url: /petstore-api
 tags:
   - name: Pet
 paths:
@@ -26,8 +26,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/petResponse"
-        '400':
-          description: Invalid request
     get:
       tags:
         - Pet
@@ -47,9 +45,10 @@ paths:
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
+          description: ID of the pet
       responses:
         '200':
           description: Pet details
@@ -57,8 +56,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/petResponse"
-        '404':
-          description: Pet not found
     put:
       tags:
         - Pet
@@ -66,9 +63,10 @@ paths:
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
+          description: ID of the pet
       requestBody:
         required: true
         content:
@@ -82,8 +80,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/petResponse"
-        '400':
-          description: Invalid request
     delete:
       tags:
         - Pet
@@ -91,9 +87,10 @@ paths:
       parameters:
         - in: path
           name: petId
-          required: true
           schema:
             type: integer
+          required: true
+          description: ID of the pet
       responses:
         '200':
           description: Pet deleted
@@ -101,8 +98,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/deleteResponse"
-        '404':
-          description: Pet not found
 components:
   schemas:
     createPetRequest:
