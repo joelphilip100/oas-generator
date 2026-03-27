@@ -132,6 +132,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /retrieve-all-pets:
+    get:
+      tags:
+        - Pet
+      summary: Retrieve all pets
+      description: Retrieve all pets
+      responses:
+        '200':
+          description: Pets retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetList'
+        '400':
+          description: Invalid request
 components:
   schemas:
     Pet:
