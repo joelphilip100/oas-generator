@@ -10,7 +10,7 @@ tags:
     description: Operations related to pets
 components:
   schemas:
-    CreatePetRequest:
+    createPetRequest:
       type: object
       required:
         - name
@@ -28,18 +28,7 @@ components:
         category:
           type: string
           description: Pet category
-    PetResponse:
-      type: object
-      properties:
-        id:
-          type: integer
-        name:
-          type: string
-        status:
-          type: string
-        category:
-          type: string
-    UpdatePetRequest:
+    updatePetRequest:
       type: object
       properties:
         name:
@@ -50,15 +39,26 @@ components:
             - available
             - pending
             - sold
-    DeleteResponse:
+    petResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+        category:
+          type: string
+    deleteResponse:
       type: object
       properties:
         message:
           type: string
-    ListPetsResponse:
+    listPetsResponse:
       type: array
       items:
-        $ref: "#/components/schemas/PetResponse"
+        $ref: "#/components/schemas/petResponse"
 paths:
   /pets:
     post:
@@ -71,14 +71,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreatePetRequest"
+              $ref: "#/components/schemas/createPetRequest"
       responses:
         '201':
           description: Pet created successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PetResponse"
+                $ref: "#/components/schemas/petResponse"
         '400':
           description: Invalid request
     get:
@@ -92,7 +92,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListPetsResponse"
+                $ref: "#/components/schemas/listPetsResponse"
         '400':
           description: Invalid request
   /pets/{petId}:
@@ -114,7 +114,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PetResponse"
+                $ref: "#/components/schemas/petResponse"
         '404':
           description: Pet not found
     put:
@@ -134,14 +134,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdatePetRequest"
+              $ref: "#/components/schemas/updatePetRequest"
       responses:
         '200':
           description: Pet updated successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PetResponse"
+                $ref: "#/components/schemas/petResponse"
         '400':
           description: Invalid request
     delete:
@@ -162,6 +162,6 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeleteResponse"
+                $ref: "#/components/schemas/deleteResponse"
         '404':
           description: Pet not found
