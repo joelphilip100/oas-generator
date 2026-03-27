@@ -64,6 +64,11 @@ class WorkflowExecutor:
                 print(f"🎉 Workflow: PR created successfully: {pr_result['pr_url']}")
                 ai_result["pr_url"] = pr_result["pr_url"]
                 
+                # Add comment to Jira with PR link
+                jira_comment = f"🚀 AI has generated the OpenAPI Specification and raised a Pull Request:\n{pr_result['pr_url']}"
+                await jira_service.add_comment(issue_key, jira_comment)
+                print(f"💬 Workflow: Posted PR link back to Jira ({issue_key})")
+                
             finally:
                 # Cleanup sandbox
                 github_service.cleanup_repo(local_sandbox)

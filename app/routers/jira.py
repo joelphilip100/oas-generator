@@ -15,16 +15,43 @@ router = APIRouter(prefix="/jira", tags=["Jira"])
 
 @router.post("/webhook", status_code=status.HTTP_202_ACCEPTED)
 async def jira_webhook(payload: Request, background_tasks: BackgroundTasks):
-    """Webhook listener for Jira events."""
+    """
+    Webhook listener for Jira events. 
+    - For comments: Triggers only if it contains 'trigger ai'.
+    - For other events (updates, transitions): Triggers by default.
+    """
     data = await payload.json()
     issue_key = data.get("issue", {}).get("key")
+    event = data.get("webhookEvent") or data.get("issue_event_type_name")
     
-    if issue_key:
-        print(f"Webhook received for {issue_key}. Dispatching workflow...")
-        # Orchestration logic handled by WorkflowExecutor
-        background_tasks.add_task(workflow_executor.execute_jira_to_gh_workflow, issue_key)
+    if not issue_key:
+        return {"status": "ignored", "reason": "no issue key"}
+
+    # 1. Special Handling for Comments (to prevent infinite loops)
+    if event == "comment_created" and "comment" in data:
+        raw_body = data["comment"].get("body")
+        comment_body = ""
+        
+        # Parse ADF or Plain Text
+        if isinstance(raw_body, dict):
+            comment_body = jira_service.parse_adf_to_text(raw_body)
+        else:
+            comment_body = str(raw_body)
+
+        if "trigger ai" in comment_body.lower():
+            print(f"✅ Webhook: Trigger phrase found in comment for {issue_key}. Dispatching workflow...")
+            background_tasks.add_task(workflow_executor.execute_jira_to_gh_workflow, issue_key)
+            return {"status": "triggered", "reason": "comment_trigger"}
+        else:
+            print(f"ℹ️ Webhook: Comment on {issue_key} ignored (no trigger phrase).")
+            return {"status": "ignored", "reason": "comment_no_trigger"}
+
+    # 2. For all other events (Issue Updated):
+    # Trigger the workflow by default (relying on Jira JQL filters for filtering)
+    print(f"✅ Webhook: Event '{event}' received for {issue_key}. Dispatching workflow...")
+    background_tasks.add_task(workflow_executor.execute_jira_to_gh_workflow, issue_key)
     
-    return {"status": "accepted"}
+    return {"status": "triggered", "event": event, "issue": issue_key}
 
 @router.get("/issue/{issue_key}", response_model=JiraIssue, response_model_exclude_none=True)
 async def get_jira_issue(issue_key: str, fields: str = None):
